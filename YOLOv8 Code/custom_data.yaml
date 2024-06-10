@@ -1,0 +1,6 @@
+
+path: C:/Users/Nicho/Desktop/Thesis/yodaTaco2/litter-detection-env/yolov8
+train: train/images
+val: valid/images
+nc: 5
+names: ['plastic', 'metal', 'glass', 'paper', 'other']
