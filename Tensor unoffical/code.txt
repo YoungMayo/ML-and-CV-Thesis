@@ -1,0 +1,336 @@
+Data Preparation:
+
+import pandas as pd
+
+# Load and inspect the CSV file
+image_urls = pd.read_csv('all_image_urls.csv')
+print(image_urls.head())
+
+
+import os
+import requests
+from tqdm import tqdm
+import pandas as pd
+
+# Load image URLs
+image_urls = pd.read_csv('all_image_urls.csv')
+
+# Get all URLs from both columns and rows
+urls = image_urls.values.flatten()
+
+# Create a directory to save images
+os.makedirs('downloaded_images', exist_ok=True)
+
+# Download images
+for url in tqdm(urls):
+    if pd.notnull(url):  # Check if the URL is not null
+        image_name = os.path.join('downloaded_images', os.path.basename(url))
+        if not os.path.exists(image_name):
+            response = requests.get(url, stream=True)
+            if response.status_code == 200:
+                with open(image_name, 'wb') as f:
+                    for chunk in response.iter_content(1024):
+                        f.write(chunk)
+
+print("All images downloaded.")
+
+
+Load Annotations and Create DataFrame
+
+import json
+
+# Load annotations
+with open('annotations.json') as f:
+    annotations = json.load(f)
+
+# Extract unique class labels
+categories = annotations['categories']
+category_id_to_name = {category['id']: category['name'] for category in categories}
+print("Category ID to Name Mapping:")
+for id, name in category_id_to_name.items():
+    print(f"{id}: {name}")
+
+# Check the number of unique labels in the dataset
+labels = [item['category_id'] for item in annotations['annotations']]
+unique_labels = set(labels)
+print(f"\nTotal unique labels found: {len(unique_labels)}")
+print("Unique labels and their counts:")
+for label in unique_labels:
+    print(f"{label} ({category_id_to_name[label]}): {labels.count(label)}")
+
+Data moved into batches
+
+import json
+import os
+import shutil
+
+# Load annotations
+with open('annotations.json') as f:
+    annotations = json.load(f)
+
+# Prepare the downloaded images directory and the new batch directories
+image_dir = 'downloaded_images/'
+batch_dir = 'batches/'
+
+if not os.path.exists(batch_dir):
+    os.makedirs(batch_dir)
+
+# Create batch directories if they don't exist
+for img in annotations['images']:
+    batch_name = os.path.dirname(img['file_name'])
+    batch_path = os.path.join(batch_dir, batch_name)
+    if not os.path.exists(batch_path):
+        os.makedirs(batch_path)
+
+# Move images to respective batch directories
+for img in annotations['images']:
+    flickr_url = img['flickr_url']
+    original_filename = flickr_url.split('/')[-1]
+    original_path = os.path.join(image_dir, original_filename)
+    batch_path = os.path.join(batch_dir, img['file_name'])
+
+    if os.path.exists(original_path):
+        shutil.move(original_path, batch_path)
+        print(f"Moved {original_path} to {batch_path}")
+    else:
+        print(f"File not found: {original_path}")
+
+print("Image separation completed.")
+
+Data moved into batches unofficial
+
+import json
+import os
+import shutil
+
+# Load annotations
+with open('annotations_unofficial.json') as f:
+    annotations = json.load(f)
+
+# Prepare the downloaded images directory and the new batch directories
+image_dir = 'downloaded_images/'
+batch_dir = 'unofficial_batches/'
+
+if not os.path.exists(batch_dir):
+    os.makedirs(batch_dir)
+
+# Create batch directories if they don't exist
+for img in annotations['images']:
+    batch_name = os.path.dirname(img['file_name'])
+    batch_path = os.path.join(batch_dir, batch_name)
+    if not os.path.exists(batch_path):
+        os.makedirs(batch_path)
+
+# Move images to respective batch directories
+for img in annotations['images']:
+    flickr_url = img['flickr_url']
+    original_filename = flickr_url.split('/')[-1]
+    original_path = os.path.join(image_dir, original_filename)
+    batch_path = os.path.join(batch_dir, img['file_name'])
+
+    if os.path.exists(original_path):
+        shutil.move(original_path, batch_path)
+        print(f"Moved {original_path} to {batch_path}")
+    else:
+        print(f"File not found: {original_path}")
+
+print("Image separation completed.")
+
+Official model
+
+import json
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import os
+from sklearn.model_selection import train_test_split
+import numpy as np
+import cv2
+from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.utils.class_weight import compute_class_weight
+
+# Load annotations
+with open('annotations.json') as f:
+    annotations = json.load(f)
+
+# Prepare data
+base_image_dir = 'batches'
+images = []
+labels = []
+missing_files = 0
+
+# Create a mapping from image IDs to file names
+image_id_to_file = {img['id']: img['file_name'] for img in annotations['images']}
+
+# Define the fixed category list based on the valid labels found
+category_names = [
+    "Aluminium foil", "Battery", "Aluminium blister pack", "Carded blister pack", 
+    "Other plastic bottle", "Clear plastic bottle", "Glass bottle", "Plastic bottle cap", 
+    "Metal bottle cap", "Broken glass", "Food Can", "Aerosol", "Drink can", "Toilet tube", 
+    "Other carton", "Egg carton", "Drink carton", "Corrugated carton", "Meal carton", 
+    "Pizza box", "Paper cup", "Disposable plastic cup", "Foam cup", "Glass cup", 
+    "Other plastic cup", "Food waste", "Glass jar", "Plastic lid", "Metal lid", 
+    "Other plastic", "Magazine paper", "Tissues", "Wrapping paper", "Normal paper",
+    "Paper bag", "Plastic film", "Six pack rings", "Garbage bag", "Other plastic wrapper", 
+    "Single-use carrier bag", "Polypropylene bag", "Crisp packet", "Spread tub", 
+    "Tupperware", "Disposable food container", "Foam food container", 
+    "Other plastic container", "Plastic gloves", "Plastic utensils", "Pop tab",
+    "Rope & strings", "Scrap metal", "Shoe", "Squeezable tube", "Plastic straw", 
+    "Paper straw", "Styrofoam piece", "Unlabeled litter", "Cigarette"
+]
+
+# Adjust number of classes to the length of category_names
+num_classes = len(category_names)
+
+# Load images and their corresponding labels
+for annotation in annotations['annotations']:
+    image_id = annotation['image_id']
+    category_id = annotation['category_id']
+    
+    if image_id in image_id_to_file and category_id < num_classes:
+        file_name = image_id_to_file[image_id]
+        image_path = os.path.join(base_image_dir, file_name)
+        
+        if os.path.exists(image_path):
+            image = cv2.imread(image_path)
+            image = cv2.resize(image, (224, 224))  # Resize as needed
+            images.append(image)
+            labels.append(category_id)
+        else:
+            missing_files += 1
+            print(f"File not found: {image_path}")
+    else:
+        missing_files += 1
+        print(f"No mapping found for image_id: {image_id} or category_id: {category_id}")
+
+print(f"Total images loaded: {len(images)}")
+print(f"Total missing files: {missing_files}")
+
+if len(images) == 0:
+    raise ValueError("No images were loaded. Please check the file paths and mapping.")
+
+# Ensure valid labels within the range [0, num_classes - 1]
+valid_labels = list(range(num_classes))
+filtered_images = []
+filtered_labels = []
+
+for img, lbl in zip(images, labels):
+    if lbl in valid_labels:
+        filtered_images.append(img)
+        filtered_labels.append(lbl)
+
+# Convert to numpy arrays
+images = np.array(filtered_images) / 255.0  # Normalize images
+labels = np.array(filtered_labels)
+
+# Filter out classes with fewer than 2 samples
+unique_labels, counts = np.unique(labels, return_counts=True)
+valid_labels = unique_labels[counts >= 2]
+filtered_images = []
+filtered_labels = []
+
+for img, lbl in zip(images, labels):
+    if lbl in valid_labels:
+        filtered_images.append(img)
+        filtered_labels.append(lbl)
+
+# Update the labels and number of classes
+images = np.array(filtered_images)
+labels = np.array(filtered_labels)
+unique_labels_after_filtering = np.unique(labels)
+num_classes = len(unique_labels_after_filtering)
+
+print(f"Total images after filtering: {len(images)}")
+print(f"Unique labels found after filtering: {unique_labels_after_filtering}")
+
+# Display the category names for the unique labels
+print("Valid Category ID to Name Mapping after filtering:")
+for i in unique_labels_after_filtering:
+    print(f"{i}: {category_names[i]}")
+
+# Adjust labels to be in range [0, num_classes - 1]
+label_map = {label: idx for idx, label in enumerate(unique_labels_after_filtering)}
+adjusted_labels = np.array([label_map[label] for label in labels])
+
+# Split data with a simple random split
+X_train, X_val, y_train, y_val = train_test_split(images, adjusted_labels, test_size=0.2, random_state=42)
+
+# Check the shape of the data
+print(f"Shape of training data: {X_train.shape}, {y_train.shape}")
+print(f"Shape of validation data: {X_val.shape}, {y_val.shape}")
+
+# Data augmentation
+datagen = ImageDataGenerator(
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
+train_generator = datagen.flow(X_train, y_train, batch_size=32)
+val_generator = ImageDataGenerator().flow(X_val, y_val, batch_size=32)
+
+# Build the model using MobileNetV2
+base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+
+# Unfreeze the last few layers of the base model
+for layer in base_model.layers[:-30]:
+    layer.trainable = False
+
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+x = Dense(512, activation='relu')(x)
+x = Dropout(0.5)(x)  # Add dropout to prevent overfitting
+
+# Multi-class classification
+predictions = Dense(num_classes, activation='softmax')(x)
+loss = 'sparse_categorical_crossentropy'
+
+model = Model(inputs=base_model.input, outputs=predictions)
+
+# Compile the model with a smaller learning rate
+model.compile(optimizer=Adam(learning_rate=0.0001), loss=loss, metrics=['accuracy'])
+
+# Calculate class weights to handle class imbalance
+class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+class_weights = {i: class_weights[i] for i in range(len(class_weights))}
+
+# Callbacks
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.00001)
+
+# Train the model
+history = model.fit(
+    train_generator, 
+    validation_data=val_generator, 
+    epochs=50, 
+    steps_per_epoch=len(X_train) // 32, 
+    validation_steps=len(X_val) // 32,
+    callbacks=[early_stopping, reduce_lr],
+    class_weight=class_weights  # Add class weights here
+)
+
+# Evaluate the model
+val_predictions = model.predict(X_val)
+val_predictions = np.argmax(val_predictions, axis=1)
+
+precision = precision_score(y_val, val_predictions, average='macro')
+recall = recall_score(y_val, val_predictions, average='macro')
+f1 = f1_score(y_val, val_predictions, average='macro')
+
+print(f'Validation Accuracy: {history.history["val_accuracy"][-1] * 100:.2f}%')
+print(f'Validation Precision: {precision:.2f}')
+print(f'Validation Recall: {recall:.2f}')
+print(f'Validation F1 Score: {f1:.2f}')
+
+# Save the model
+model.save('my_model.keras')
+
+
+

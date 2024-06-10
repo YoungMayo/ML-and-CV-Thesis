@@ -1,0 +1,4 @@
+Validation Accuracy: 0.00%
+Validation Precision: 0.00
+Validation Recall: 0.02
+Validation F1 Score: 0.00
